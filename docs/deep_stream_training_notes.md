@@ -22,3 +22,14 @@ Expected notes for report:
 Next actions after run completes:
 - Export predictions (python src/deep_stream.py --mode predict --export-points 8192)
 - Add final trained metrics and selected fusion strategy to the draft report (.docx) in the Results and Methods sections.
+Reproducibility notes (added 2026-06-19):
+- Hardware: RTX 4070 Ti, CUDA-enabled, AMP used where available.
+- Key commands used:
+  - Train (combined experiment): python src/deep_stream.py --mode train --epochs 20 --train-batch-size 8 --train-points 8192 --eval-points 8192 --num-workers 4 --loss-type focal --focal-gamma 2.0 --focal-alpha 0.25 --pos-weight 17.7768 --positive-fraction 0.3 --hard-negative-fraction 0.5 --amp
+  - Predict: python src/deep_stream.py --mode predict --predict-seqs seq-03,seq-04,seq-06,seq-12,seq-14 --export-points 8192 --amp
+  - Calibrate: python tools\calibrate_thresholds.py
+- Checkpoints: results/deep_stream/deep_stream.pt (best checkpoint saved during runs)
+
+Limitations (short):
+- GT is small and conservative; seq-06 and seq-14 have fewer labels.
+- Current learned model shows low precision; mitigation requires more GT, hard-negative mining, or alternative losses.

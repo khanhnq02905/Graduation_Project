@@ -89,6 +89,11 @@ def _build_features(points):
 
 
 def _sample_indices(labels, target_points, seed, seq_id, frame_name, positive_fraction=0.5):
+    """Sample indices with optional hard-negative preference.
+    If results/hard_negatives/seq_id/frame_name_hard_neg.npy exists and HARD_NEGATIVE_FRACTION>0,
+    prefer sampling negatives from that list for a fraction of negative slots.
+    """
+
     count = len(labels)
     if target_points <= 0 or count == 0:
         return np.arange(count)
@@ -107,9 +112,35 @@ def _sample_indices(labels, target_points, seed, seq_id, frame_name, positive_fr
     desired_pos = min(desired_pos, len(pos_idx))
     desired_neg = target_points - desired_pos
 
+    # Hard-negative preference
+    hard_neg_take = np.array([], dtype=int)
+    try:
+        from pathlib import Path
+        hard_path = PROJECT_ROOT / 'results' / 'hard_negatives' / seq_id / f"{frame_name}_hard_neg.npy"
+        if HARD_NEGATIVE_FRACTION > 0 and hard_path.exists():
+            hard_list = np.load(str(hard_path))
+            hard_list = np.array([int(x) for x in hard_list if x in neg_idx], dtype=int)
+            if len(hard_list) > 0:
+                desired_from_hard = int(round(desired_neg * HARD_NEGATIVE_FRACTION))
+                take_n = min(desired_from_hard, len(hard_list))
+                if take_n > 0:
+                    hard_neg_take = rng.choice(hard_list, size=take_n, replace=len(hard_list) < take_n)
+    except Exception:
+        hard_neg_take = np.array([], dtype=int)
+
+    remaining_neg = desired_neg - len(hard_neg_take)
+    if remaining_neg > 0:
+        # pick remaining negatives from general neg pool
+        neg_pool = np.setdiff1d(neg_idx, hard_neg_take, assume_unique=True)
+        if len(neg_pool) == 0:
+            neg_take2 = np.array([], dtype=int)
+        else:
+            neg_take2 = rng.choice(neg_pool, size=remaining_neg, replace=len(neg_pool) < remaining_neg)
+    else:
+        neg_take2 = np.array([], dtype=int)
+
     pos_take = rng.choice(pos_idx, size=desired_pos, replace=len(pos_idx) < desired_pos)
-    neg_take = rng.choice(neg_idx, size=desired_neg, replace=len(neg_idx) < desired_neg)
-    indices = np.concatenate([pos_take, neg_take])
+    indices = np.concatenate([pos_take, hard_neg_take, neg_take2])
 
     if len(indices) < target_points:
         extra = rng.choice(count, size=target_points - len(indices), replace=True)
@@ -341,6 +372,10 @@ class FocalLoss(nn.Module):
         return loss
 
 
+# global control for hard negative sampling fraction (set in _train_mode)
+HARD_NEGATIVE_FRACTION = 0.0
+
+
 def _count_positive_weight(samples):
     positives = 0
     negatives = 0
@@ -530,6 +565,7 @@ def _build_parser():
     parser.add_argument("--loss-type", choices=["bce","focal"], default="bce", help="Loss to use for training")
     parser.add_argument("--focal-gamma", type=float, default=2.0, help="Focal loss gamma parameter")
     parser.add_argument("--focal-alpha", type=float, default=0.25, help="Focal loss alpha parameter")
+    parser.add_argument("--hard-negative-fraction", type=float, default=0.0, help="Fraction of negatives to sample from precomputed hard negatives (0..1)")
     return parser
 
 
@@ -558,6 +594,9 @@ def _train_mode(args, device):
 
     train_points = _resolve_train_points(args)
     autocast_enabled = bool(args.amp and device.type == "cuda")
+    # configure hard-negative sampling fraction
+    global HARD_NEGATIVE_FRACTION
+    HARD_NEGATIVE_FRACTION = float(getattr(args, 'hard_negative_fraction', 0.0))
     if autocast_enabled:
         try:
             scaler = torch.amp.GradScaler("cuda", enabled=True)
