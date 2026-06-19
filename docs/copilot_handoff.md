@@ -28,7 +28,7 @@
   - Batched train/evaluate/predict modes with AMP and GPU-friendly sampling
   - Saves `*_deep_prob.npy` predictions and a checkpoint
 
-## Progress snapshot (2026-06-19 04:23 +07)
+## Progress snapshot (2026-06-19 15:13 +07)
 - Geometric baseline is locked and the test split GT masks are built.
 - Test split baseline benchmark is complete and logged:
   - `seq-03`: **F1=0.0766**
@@ -42,7 +42,9 @@
   - current best threshold = **0.10**
 - Draft report exists at `docs/Hybrid_3D_Edge_Detection_Report_Draft.docx`.
 - Deep-stream smoke training, evaluation, and export paths are verified with the new batched model.
-- Estimated implementation progress (excluding report writing): **~45%**.
+- Repository has been pushed to GitHub: `https://github.com/khanhnq02905/Graduation_Project` (commit `8daf4f2` on origin/main).
+- `.gitignore` added to exclude `data/redkitchen`; note `data/redkitchen_edge_gt/` is tracked (small GT masks and _edge_points.ply files).
+- Estimated implementation progress (excluding report writing): **~46%**.
 
 ## Recent decisions (2026-05-20)
 - **Scope confirmed:** frame-level RGB-D -> point-cloud edge detection (no scene fusion). Pose files are not required for current scope.
@@ -75,6 +77,9 @@ Current tracker snapshot:
 
 ## Immediate next actions (ordered)
 1. Run a longer deep-stream training pass on the labeled point clouds using the batched GPU path.
+   - Status: STARTED (2026-06-19 18:34 +07)
+   - Params: epochs=50, train_batch_size=8, train_points=8192, eval_points=8192, num_workers=4, amp=True
+   - Command: python -u src\deep_stream.py --mode train --epochs 50 --train-batch-size 8 --train-points 8192 --eval-points 8192 --num-workers 4
 2. Export deep probabilities for labeled validation and test sequences.
 3. Use the deep outputs to design late fusion and calibration.
 
