@@ -310,6 +310,37 @@ def _metrics_from_counts(tp, fp, fn):
     return precision, recall, f1
 
 
+class FocalLoss(nn.Module):
+    """Binary focal loss for logits.
+    Args:
+        alpha (float): weight for positive class (0..1)
+        gamma (float): focusing parameter
+        pos_weight (torch.Tensor or None): positive class weight (same semantics as BCEWithLogitsLoss)
+        reduction: 'mean' or 'sum' or 'none'
+    """
+    def __init__(self, alpha=0.25, gamma=2.0, pos_weight=None, reduction='mean'):
+        super().__init__()
+        self.alpha = float(alpha)
+        self.gamma = float(gamma)
+        self.reduction = reduction
+        self.pos_weight = pos_weight
+
+    def forward(self, logits, targets):
+        # logits: Tensor, targets: Tensor of same shape with 0/1 floats
+        # Use binary_cross_entropy_with_logits for stable BCE computation
+        bce = nn.functional.binary_cross_entropy_with_logits(logits, targets, reduction='none', pos_weight=self.pos_weight)
+        probs = torch.sigmoid(logits)
+        p_t = probs * targets + (1.0 - probs) * (1.0 - targets)
+        focal_factor = (1.0 - p_t) ** self.gamma
+        alpha_factor = self.alpha * targets + (1.0 - self.alpha) * (1.0 - targets)
+        loss = alpha_factor * focal_factor * bce
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        return loss
+
+
 def _count_positive_weight(samples):
     positives = 0
     negatives = 0
@@ -496,6 +527,9 @@ def _build_parser():
     parser.add_argument("--device", default="auto")
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--pos-weight", type=float, default=None, help="Override computed pos_weight for BCE loss (float)")
+    parser.add_argument("--loss-type", choices=["bce","focal"], default="bce", help="Loss to use for training")
+    parser.add_argument("--focal-gamma", type=float, default=2.0, help="Focal loss gamma parameter")
+    parser.add_argument("--focal-alpha", type=float, default=0.25, help="Focal loss alpha parameter")
     return parser
 
 
@@ -538,7 +572,11 @@ def _train_mode(args, device):
         pos_weight = torch.tensor([float(args.pos_weight)], dtype=torch.float32, device=device)
     else:
         pos_weight = torch.tensor([_count_positive_weight(train_samples)], dtype=torch.float32, device=device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    # Select loss function
+    if args.loss_type == 'focal':
+        criterion = FocalLoss(alpha=args.focal_alpha, gamma=args.focal_gamma, pos_weight=pos_weight)
+    else:
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     train_dataset = PointCloudEdgeDataset(
@@ -585,6 +623,9 @@ def _train_mode(args, device):
                     "seed": args.seed,
                     "amp": bool(args.amp),
                     "pos_weight": float(pos_weight.item()),
+                    "loss_type": args.loss_type,
+                    "focal_gamma": float(args.focal_gamma),
+                    "focal_alpha": float(args.focal_alpha),
                 },
             )
             print(f"Saved checkpoint: {checkpoint_path}")
@@ -610,7 +651,10 @@ def _evaluate_mode(args, device):
     model = PointEdgeNet(input_dim=4, hidden_dim=args.hidden_dim, dropout=args.dropout).to(device)
     _load_checkpoint(checkpoint_path, model, device)
     pos_weight = torch.tensor([_count_positive_weight(eval_samples)], dtype=torch.float32, device=device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    if args.loss_type == 'focal':
+        criterion = FocalLoss(alpha=args.focal_alpha, gamma=args.focal_gamma, pos_weight=pos_weight)
+    else:
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     eval_dataset = PointCloudEdgeDataset(
         eval_samples,
         target_points=args.eval_points,
