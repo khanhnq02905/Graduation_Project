@@ -1,7 +1,15 @@
-data/
-output/
-results/
+# Exclude dataset folder
+/data/redkitchen/
+data/redkitchen/
+# Python env
 venv/
-
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+# Editor
+.vscode/
+.idea/
+.DS_Store
+# Local OS
+Thumbs.db
