@@ -28,23 +28,21 @@
   - Batched train/evaluate/predict modes with AMP and GPU-friendly sampling
   - Saves `*_deep_prob.npy` predictions and a checkpoint
 
-## Progress snapshot (2026-06-19 15:13 +07)
+## Progress snapshot (2026-06-19 19:22 +07)
 - Geometric baseline is locked and the test split GT masks are built.
-- Test split baseline benchmark is complete and logged:
-  - `seq-03`: **F1=0.0766**
-  - `seq-04`: **F1=0.0592**
-  - `seq-06`: **F1=0.0295**
-  - `seq-12`: **F1=0.1267**
-  - `seq-14`: **F1=0.0395**
-  - overall test baseline at threshold `0.10`: **P=0.0314, R=0.5878, F1=0.0597**
-- Validation threshold sweep is complete:
-  - thresholds `0.06/0.08/0.10` overall F1 = **0.0579 / 0.0814 / 0.0830**
-  - current best threshold = **0.10**
-- Draft report exists at `docs/Hybrid_3D_Edge_Detection_Report_Draft.docx`.
-- Deep-stream smoke training, evaluation, and export paths are verified with the new batched model.
-- Repository has been pushed to GitHub: `https://github.com/khanhnq02905/Graduation_Project` (commit `8daf4f2` on origin/main).
-- `.gitignore` added to exclude `data/redkitchen`; note `data/redkitchen_edge_gt/` is tracked (small GT masks and _edge_points.ply files).
-- Estimated implementation progress (excluding report writing): **~46%**.
+- Test split baseline benchmark is complete and logged (same as earlier).
+- Deep-stream pipeline implemented, GPU/AMP-enabled, with train/eval/predict CLI.
+- Experiments performed since last snapshot:
+  - Exported deep_prob predictions for validation (seq-11, seq-13) and ran calibration sweep (best val t=0.01, P≈0.0053,R=1.0,F1≈0.0105) — indicates extreme class imbalance behavior.
+  - Implemented pos_weight override and ran short hyperparam sweeps (pos_weight scaling, positive_fraction) — small improvements only.
+  - Added focal loss option and ran quick focal-loss trials (no large improvement observed).
+  - Implemented hard-negative mining: generated hard negative index files for train frames (results/hard_negatives/), and added hard-negative sampling in dataset sampling.
+  - Generated per-frame diagnostics and histograms (results/diagnostics/) and PLY visualizations highlighting TP/FP/FN (results/visualizations/).
+  - Updated .gitignore to ignore output/ and results/ and untracked existing generated files from index (to keep repo small).
+  - Ran a combined retrain (focal + moderate pos_weight ~computed*0.2 + hard-negative-fraction=0.5) for 20 epochs — model became conservative (predicted essentially no positives on validation; P=0,R=0,F1=0).
+- Checkpoints and artifacts saved under results/ (check results/deep_stream for checkpoints).
+- Draft report exists at `docs/Hybrid_3D_Edge_Detection_Report_Draft.docx` and diagnostics added to `docs/deep_stream_training_notes.md`.
+- Estimated implementation progress (excluding report writing): **~55%**.
 
 ## Recent decisions (2026-05-20)
 - **Scope confirmed:** frame-level RGB-D -> point-cloud edge detection (no scene fusion). Pose files are not required for current scope.
@@ -64,9 +62,9 @@
 **Deep-stream baseline training (GPU-optimized)**
 
 Current tracker snapshot:
-- `in_progress`: `train-deep-baseline`
-- `done`: `test-benchmark-v1`, `label-seq01-pilot`, `fix-seq01-frame100`, `label-val-subset`, `build-val-masks`, `evaluate-val-metrics`, `threshold-sweep-val`, `label-test-subset`, `build-test-masks`, `evaluate-test-benchmark`, `report-draft`, `deep-stream-scaffold`
-- `pending`: `export-deep-predictions`, `plan-hybrid-fusion`
+- `in_progress`: `tune-deep-baseline`, `diagnostics-review`
+- `done`: `test-benchmark-v1`, `label-seq01-pilot`, `fix-seq01-frame100`, `label-val-subset`, `build-val-masks`, `evaluate-val-metrics`, `threshold-sweep-val`, `label-test-subset`, `build-test-masks`, `evaluate-test-benchmark`, `report-draft`, `deep-stream-scaffold`, `export-deep-predictions`, `calibration-val`, `pos_weight-sweep`, `focal-experiments`, `hard-negative-generation`, `diagnostics-generation`, `visualizations`, `repo-cleanup-ignore-output`, `combined-retrain-short`
+- `pending`: `relabel-seq06-seq14`, `long-retrain-hypersearch`, `plan-hybrid-fusion`, `final-report-writing`, `clean-git-history`
 
 ## CloudCompare labeling policy (important)
 - Keep only plausible geometric edges (clear boundary/surface-transition lines).
@@ -76,12 +74,14 @@ Current tracker snapshot:
 - Conservative and consistent labeling is preferred over aggressive noisy labeling.
 
 ## Immediate next actions (ordered)
-1. Run a longer deep-stream training pass on the labeled point clouds using the batched GPU path.
-   - Status: STARTED (2026-06-19 18:34 +07)
-   - Params: epochs=50, train_batch_size=8, train_points=8192, eval_points=8192, num_workers=4, amp=True
-   - Command: python -u src\deep_stream.py --mode train --epochs 50 --train-batch-size 8 --train-points 8192 --eval-points 8192 --num-workers 4
-2. Export deep probabilities for labeled validation and test sequences.
-3. Use the deep outputs to design late fusion and calibration.
+1. Inspect diagnostics and visualizations (results/visualizations and results/diagnostics) and perform a small targeted relabel pass if labeling errors are found (recommend relabeling high-FP points in seq-06 and seq-14).
+   - Action: open PLYs in CloudCompare: results/visualizations/*.ply
+   - Expected ROI: 50–200 relabeled points across a few frames can materially help training.
+2. Run a targeted retrain (short test) with adjusted hyperparams to confirm direction:
+   - Suggested test: focal loss, pos_weight = computed * 0.5 (≈44.44), positive_fraction=0.25, hard-negative-fraction=0.5, epochs=8
+   - Command (test): python -u src\deep_stream.py --mode train --epochs 8 --pos-weight 44.44 --positive-fraction 0.25 --loss-type focal --focal-gamma 2.0 --focal-alpha 0.25 --hard-negative-fraction 0.5 --train-batch-size 8
+3. If test shows improvement, run full retrain (20–50 epochs) and export final predictions.
+4. Prepare report update: add diagnostics, figures (histograms, example visualizations), and a Limitations paragraph documenting GT sparsity and steps taken.
 
 ## How to resume in a new chat
 Tell Copilot:
