@@ -495,6 +495,7 @@ def _build_parser():
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--pos-weight", type=float, default=None, help="Override computed pos_weight for BCE loss (float)")
     return parser
 
 
@@ -532,7 +533,11 @@ def _train_mode(args, device):
         scaler = None
 
     model = PointEdgeNet(input_dim=4, hidden_dim=args.hidden_dim, dropout=args.dropout).to(device)
-    pos_weight = torch.tensor([_count_positive_weight(train_samples)], dtype=torch.float32, device=device)
+    # Allow overriding computed pos_weight via CLI for experimentation
+    if getattr(args, 'pos_weight', None) is not None:
+        pos_weight = torch.tensor([float(args.pos_weight)], dtype=torch.float32, device=device)
+    else:
+        pos_weight = torch.tensor([_count_positive_weight(train_samples)], dtype=torch.float32, device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
@@ -579,6 +584,7 @@ def _train_mode(args, device):
                     "threshold": args.threshold,
                     "seed": args.seed,
                     "amp": bool(args.amp),
+                    "pos_weight": float(pos_weight.item()),
                 },
             )
             print(f"Saved checkpoint: {checkpoint_path}")
